@@ -1,0 +1,373 @@
+#!/bin/bash
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
+OLLAMA_MODEL="mxbai-embed-large"
+POSTGRES_USER="postgres"
+POSTGRES_PASSWORD="code-context-password"
+POSTGRES_DB="postgres"
+POSTGRES_CONTAINER_NAME="code-context-postgres"
+POSTGRES_PORT="5433"
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex/}"
+
+# Logging functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if running on macOS or Linux
+detect_os() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        OS="linux"
+    else
+        log_error "Unsupported operating system: $OSTYPE"
+        exit 1
+    fi
+    log_info "Detected OS: $OS"
+}
+
+# Install Ollama if not already installed
+install_ollama() {
+    log_info "Checking Ollama installation..."
+    
+    if command -v ollama >/dev/null 2>&1; then
+        log_success "Ollama is already installed"
+        return 0
+    fi
+    
+    log_info "Installing Ollama..."
+    if [[ "$OS" == "macos" ]]; then
+        # Download and install Ollama for macOS
+        curl -fsSL https://ollama.com/install.sh | sh
+    else
+        # Linux installation
+        curl -fsSL https://ollama.com/install.sh | sh
+    fi
+    
+    log_success "Ollama installed successfully"
+}
+
+# Start Ollama service if not already running
+start_ollama() {
+    log_info "Checking if Ollama is running..."
+    
+    # Check if Ollama is responding
+    if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+        log_success "Ollama is already running"
+        return 0
+    fi
+    
+    log_info "Starting Ollama service..."
+    if [[ "$OS" == "macos" ]]; then
+        # On macOS, Ollama runs as a service
+        ollama serve >/dev/null 2>&1 &
+        sleep 3
+    else
+        # On Linux, start Ollama service
+        systemctl --user start ollama || (ollama serve >/dev/null 2>&1 &)
+        sleep 3
+    fi
+    
+    # Wait for Ollama to be ready
+    local max_attempts=30
+    local attempt=1
+    while ! curl -s http://localhost:11434/api/tags >/dev/null 2>&1; do
+        if [ $attempt -ge $max_attempts ]; then
+            log_error "Ollama failed to start after $max_attempts attempts"
+            exit 1
+        fi
+        log_info "Waiting for Ollama to start... (attempt $attempt/$max_attempts)"
+        sleep 2
+        ((attempt++))
+    done
+    
+    log_success "Ollama is running"
+}
+
+# Install embedding model if not already downloaded
+install_embedding_model() {
+    log_info "Checking if embedding model '$OLLAMA_MODEL' is installed..."
+    
+    # Check if model is already installed
+    if ollama list | grep -q "$OLLAMA_MODEL"; then
+        log_success "Embedding model '$OLLAMA_MODEL' is already installed"
+        return 0
+    fi
+    
+    log_info "Downloading embedding model '$OLLAMA_MODEL'..."
+    ollama pull "$OLLAMA_MODEL"
+    log_success "Embedding model '$OLLAMA_MODEL' installed successfully"
+}
+
+# Check if Docker is installed
+check_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        log_error "Docker is not installed. Please install Docker first."
+        log_info "Visit: https://docs.docker.com/get-docker/"
+        exit 1
+    fi
+    
+    # Check if Docker daemon is running
+    if ! docker info >/dev/null 2>&1; then
+        log_error "Docker daemon is not running. Please start Docker first."
+        exit 1
+    fi
+    
+    log_success "Docker is available"
+}
+
+# Setup PostgreSQL with ParadeDB
+setup_postgres() {
+    log_info "Setting up PostgreSQL with ParadeDB..."
+    
+    # Check if container already exists and is running
+    if docker ps | grep -q "$POSTGRES_CONTAINER_NAME"; then
+        log_success "PostgreSQL container '$POSTGRES_CONTAINER_NAME' is already running"
+        return 0
+    fi
+    
+    # Check if container exists but is stopped
+    if docker ps -a | grep -q "$POSTGRES_CONTAINER_NAME"; then
+        log_info "Starting existing PostgreSQL container..."
+        docker start "$POSTGRES_CONTAINER_NAME"
+        sleep 5
+        log_success "PostgreSQL container started"
+        return 0
+    fi
+    
+    # Check if port is already in use and find an available port
+    local available_port="$POSTGRES_PORT"
+    while netstat -an | grep -q ":$available_port.*LISTEN" || docker ps | grep -q ":$available_port->"; do
+        log_warning "Port $available_port is already in use, trying next port..."
+        available_port=$((available_port + 1))
+    done
+    
+    if [ "$available_port" != "$POSTGRES_PORT" ]; then
+        log_info "Using port $available_port instead of $POSTGRES_PORT"
+        POSTGRES_PORT="$available_port"
+    fi
+    
+    log_info "Creating new PostgreSQL container with ParadeDB on port $POSTGRES_PORT..."
+    docker run -d \
+        --name "$POSTGRES_CONTAINER_NAME" \
+        -e POSTGRES_USER="$POSTGRES_USER" \
+        -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+        -e POSTGRES_DB="$POSTGRES_DB" \
+        -p "$POSTGRES_PORT:5432" \
+        paradedb/paradedb:latest
+    
+    # Wait for PostgreSQL to be ready
+    log_info "Waiting for PostgreSQL to be ready..."
+    local max_attempts=30
+    local attempt=1
+    while ! docker exec "$POSTGRES_CONTAINER_NAME" pg_isready >/dev/null 2>&1; do
+        if [ $attempt -ge $max_attempts ]; then
+            log_error "PostgreSQL failed to start after $max_attempts attempts"
+            exit 1
+        fi
+        log_info "Waiting for PostgreSQL to be ready... (attempt $attempt/$max_attempts)"
+        sleep 2
+        ((attempt++))
+    done
+    
+    log_success "PostgreSQL with ParadeDB is running"
+}
+
+# Create config directory if it doesn't exist
+create_config_dir() {
+    if [ ! -d "$CODEX_HOME" ]; then
+        log_info "Creating config directory: $CODEX_HOME"
+        mkdir -p "$CODEX_HOME"
+    fi
+}
+
+# Generate and render config.toml
+render_config() {
+    log_info "Generating config.toml..."
+    
+    local config_file="$CODEX_HOME/config.toml"
+    local postgres_connection_string="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB?sslmode=disable"
+    local mcp_server_name="claude-context-local"
+    
+    # Create new MCP server configuration
+    local new_mcp_config="[mcp_servers.$mcp_server_name]
+command = \"npx\"
+args = [
+    \"@relyt/claude-context-mcp@latest\"
+]
+env.EMBEDDING_PROVIDER = \"Ollama\"
+env.OLLAMA_HOST = \"http://127.0.0.1:11434\"
+env.EMBEDDING_MODEL = \"$OLLAMA_MODEL\"
+env.VECTOR_DATABASE_PROVIDER = \"postgres\"
+env.HYBRID_MODE = \"false\"
+env.POSTGRES_CONNECTION_STRING = \"$postgres_connection_string\""
+    
+    if [ -f "$config_file" ]; then
+        log_info "Existing config file found, updating MCP server configuration..."
+        
+        # Check if our MCP server already exists in the config
+        if grep -q "\\[mcp_servers\\.$mcp_server_name\\]" "$config_file"; then
+            log_info "Updating existing MCP server '$mcp_server_name'..."
+            
+            # Create a temporary file for the updated config
+            local temp_file=$(mktemp)
+            local in_target_section=false
+            local section_updated=false
+            
+            while IFS= read -r line; do
+                # Check if we're entering our target section
+                if [[ "$line" =~ ^\[mcp_servers\.$mcp_server_name\]$ ]]; then
+                    in_target_section=true
+                    echo "$new_mcp_config" >> "$temp_file"
+                    section_updated=true
+                    continue
+                fi
+                
+                # Check if we're entering a different section
+                if [[ "$line" =~ ^\[.*\]$ ]] && [ "$in_target_section" = true ]; then
+                    in_target_section=false
+                fi
+                
+                # Skip lines that belong to our target section (they'll be replaced)
+                if [ "$in_target_section" = false ]; then
+                    echo "$line" >> "$temp_file"
+                fi
+            done < "$config_file"
+            
+            # If section wasn't found and updated, append it
+            if [ "$section_updated" = false ]; then
+                echo "" >> "$temp_file"
+                echo "$new_mcp_config" >> "$temp_file"
+            fi
+            
+            mv "$temp_file" "$config_file"
+        else
+            log_info "Adding new MCP server '$mcp_server_name' to existing config..."
+            
+            # Check if file ends with newline, add one if not
+            if [ -s "$config_file" ] && [ "$(tail -c1 "$config_file" | wc -l)" -eq 0 ]; then
+                echo "" >> "$config_file"
+            fi
+            
+            # Add a separator comment and the new MCP server
+            echo "" >> "$config_file"
+            echo "$new_mcp_config" >> "$config_file"
+        fi
+    else
+        log_info "Creating new config file..."
+        echo "$new_mcp_config" > "$config_file"
+    fi
+    
+    log_success "Config file created/updated: $config_file"
+    log_info "Configuration details:"
+    echo "  - MCP Server: $mcp_server_name"
+    echo "  - Embedding Provider: Ollama"
+    echo "  - Ollama Host: http://127.0.0.1:11434"
+    echo "  - Embedding Model: $OLLAMA_MODEL"
+    echo "  - Vector Database: PostgreSQL"
+    echo "  - Database Connection: $postgres_connection_string"
+}
+
+# Test the setup
+test_setup() {
+    log_info "Testing the setup..."
+    
+    # Test Ollama
+    if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+        log_success "✓ Ollama is responding"
+    else
+        log_error "✗ Ollama is not responding"
+        return 1
+    fi
+    
+    # Test embedding model
+    if ollama list | grep -q "$OLLAMA_MODEL"; then
+        log_success "✓ Embedding model '$OLLAMA_MODEL' is available"
+    else
+        log_error "✗ Embedding model '$OLLAMA_MODEL' is not available"
+        return 1
+    fi
+    
+    # Test PostgreSQL
+    if docker exec "$POSTGRES_CONTAINER_NAME" pg_isready >/dev/null 2>&1; then
+        log_success "✓ PostgreSQL is ready"
+    else
+        log_error "✗ PostgreSQL is not ready"
+        return 1
+    fi
+    
+    # Test database connection
+    if docker exec "$POSTGRES_CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;" >/dev/null 2>&1; then
+        log_success "✓ Database connection successful"
+    else
+        log_error "✗ Database connection failed"
+        return 1
+    fi
+    
+    log_success "All tests passed! Setup is complete."
+}
+
+# Main installation flow
+main() {
+    echo "=================================================="
+    echo "  MCP Setup Installation Script"
+    echo "=================================================="
+    echo
+    
+    detect_os
+    check_docker
+    
+    install_ollama
+    start_ollama
+    install_embedding_model
+    
+    setup_postgres
+    
+    create_config_dir
+    render_config
+    
+    test_setup
+    
+    echo
+    echo "=================================================="
+    log_success "Installation completed successfully!"
+    echo "=================================================="
+    echo
+    echo "Next steps:"
+    echo "1. Restart Claude Desktop to load the new configuration"
+    echo "2. The MCP server should now be available in Claude Desktop"
+    echo
+    echo "Configuration file location: $CODEX_HOME/config.toml"
+    echo
+    echo "Services running:"
+    echo "- Ollama: http://localhost:11434"
+    echo "- PostgreSQL: localhost:$POSTGRES_PORT"
+    echo "  - Username: $POSTGRES_USER"
+    echo "  - Password: $POSTGRES_PASSWORD"
+    echo "  - Database: $POSTGRES_DB"
+    echo
+}
+
+# Run main function
+main "$@"
