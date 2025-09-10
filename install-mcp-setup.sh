@@ -58,8 +58,9 @@ install_ollama() {
     
     log_info "Installing Ollama..."
     if [[ "$OS" == "macos" ]]; then
-        # Download and install Ollama for macOS
-        curl -fsSL https://ollama.com/install.sh | sh
+        echo "Please install Ollama manually from https://ollama.com/download/mac"
+        echo "After installation, re-run this script."
+        exit 1
     else
         # Linux installation
         curl -fsSL https://ollama.com/install.sh | sh
@@ -202,9 +203,9 @@ create_config_dir() {
     fi
 }
 
-# Generate and render config.toml
+# Generate and render Codex config.toml
 render_config() {
-    log_info "Generating config.toml..."
+    log_info "Generating Codex config.toml..."
     
     local config_file="$CODEX_HOME/config.toml"
     local postgres_connection_string="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB?sslmode=disable"
@@ -228,7 +229,7 @@ env.POSTGRES_CONNECTION_STRING = \"$postgres_connection_string\""
         
         # Check if our MCP server already exists in the config
         if grep -q "\\[mcp_servers\\.$mcp_server_name\\]" "$config_file"; then
-            log_info "Updating existing MCP server '$mcp_server_name'..."
+            log_info "Updating existing MCP server '$mcp_server_name' in Codex config..."
             
             # Create a temporary file for the updated config
             local temp_file=$(mktemp)
@@ -263,7 +264,7 @@ env.POSTGRES_CONNECTION_STRING = \"$postgres_connection_string\""
             
             mv "$temp_file" "$config_file"
         else
-            log_info "Adding new MCP server '$mcp_server_name' to existing config..."
+            log_info "Adding new MCP server '$mcp_server_name' to existing Codex config..."
             
             # Check if file ends with newline, add one if not
             if [ -s "$config_file" ] && [ "$(tail -c1 "$config_file" | wc -l)" -eq 0 ]; then
@@ -275,11 +276,11 @@ env.POSTGRES_CONNECTION_STRING = \"$postgres_connection_string\""
             echo "$new_mcp_config" >> "$config_file"
         fi
     else
-        log_info "Creating new config file..."
+        log_info "Creating new Codex config file..."
         echo "$new_mcp_config" > "$config_file"
     fi
     
-    log_success "Config file created/updated: $config_file"
+    log_success "Codex config file created/updated: $config_file"
     log_info "Configuration details:"
     echo "  - MCP Server: $mcp_server_name"
     echo "  - Embedding Provider: Ollama"
@@ -287,6 +288,19 @@ env.POSTGRES_CONNECTION_STRING = \"$postgres_connection_string\""
     echo "  - Embedding Model: $OLLAMA_MODEL"
     echo "  - Vector Database: PostgreSQL"
     echo "  - Database Connection: $postgres_connection_string"
+}
+
+# Check if Codex is installed
+check_codex_installation() {
+    log_info "Checking Codex installation..."
+    
+    if command -v codex >/dev/null 2>&1; then
+        log_success "✓ Codex is installed"
+        return 0
+    else
+        log_warning "✗ Codex is not installed"
+        return 1
+    fi
 }
 
 # Test the setup
@@ -331,7 +345,7 @@ test_setup() {
 # Main installation flow
 main() {
     echo "=================================================="
-    echo "  MCP Setup Installation Script"
+    echo "  MCP Setup Installation Script for Codex"
     echo "=================================================="
     echo
     
@@ -354,9 +368,25 @@ main() {
     log_success "Installation completed successfully!"
     echo "=================================================="
     echo
-    echo "Next steps:"
-    echo "1. Restart Claude Desktop to load the new configuration"
-    echo "2. The MCP server should now be available in Claude Desktop"
+
+    # Check Codex installation and provide appropriate instructions
+    if check_codex_installation; then
+        echo "Next steps:"
+        echo "1. Start Codex with the following command:"
+        echo "   codex"
+        echo "2. The MCP server configuration has been added to: $CODEX_HOME/config.toml"
+        echo "3. Codex will automatically load the MCP server on startup"
+    else
+        echo "Next steps:"
+        echo "1. Install Codex first:"
+        echo "   npm install -g @openai/codex"
+        echo "   Documentation: https://developers.openai.com/codex/cli/"
+        echo "2. After installing Codex, start it with:"
+        echo "   codex"
+        echo "3. The MCP server configuration is ready at: $CODEX_HOME/config.toml"
+        echo "4. Codex will automatically load the MCP server on startup"
+    fi
+
     echo
     echo "Configuration file location: $CODEX_HOME/config.toml"
     echo
