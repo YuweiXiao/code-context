@@ -290,6 +290,19 @@ env.POSTGRES_CONNECTION_STRING = \"$postgres_connection_string\""
     echo "  - Database Connection: $postgres_connection_string"
 }
 
+# Check if npm is installed
+check_npm_installation() {
+    log_info "Checking npm installation..."
+    
+    if command -v npm >/dev/null 2>&1; then
+        log_success "✓ npm is installed"
+        return 0
+    else
+        log_warning "✗ npm is not installed"
+        return 1
+    fi
+}
+
 # Check if Codex is installed
 check_codex_installation() {
     log_info "Checking Codex installation..."
@@ -369,7 +382,7 @@ main() {
     echo "=================================================="
     echo
 
-    # Check Codex installation and provide appropriate instructions
+    # Check npm and Codex installation and provide appropriate instructions
     if check_codex_installation; then
         echo "Next steps:"
         echo "1. Start Codex with the following command:"
@@ -377,14 +390,27 @@ main() {
         echo "2. The MCP server configuration has been added to: $CODEX_HOME/config.toml"
         echo "3. Codex will automatically load the MCP server on startup"
     else
-        echo "Next steps:"
-        echo "1. Install Codex first:"
-        echo "   npm install -g @openai/codex"
-        echo "   Documentation: https://developers.openai.com/codex/cli/"
-        echo "2. After installing Codex, start it with:"
-        echo "   codex"
-        echo "3. The MCP server configuration is ready at: $CODEX_HOME/config.toml"
-        echo "4. Codex will automatically load the MCP server on startup"
+        if check_npm_installation; then
+            echo "Next steps:"
+            echo "1. Install Codex first:"
+            echo "   npm install -g @openai/codex"
+            echo "   Documentation: https://developers.openai.com/codex/cli/"
+            echo "2. After installing Codex, start it with:"
+            echo "   codex"
+            echo "3. The MCP server configuration is ready at: $CODEX_HOME/config.toml"
+            echo "4. Codex will automatically load the MCP server on startup"
+        else
+            echo "Next steps:"
+            echo "1. Install Node.js and npm first:"
+            echo "   Visit: https://nodejs.org/en/download/"
+            echo "2. After installing Node.js/npm, install Codex:"
+            echo "   npm install -g @openai/codex"
+            echo "   Documentation: https://developers.openai.com/codex/cli/"
+            echo "3. Start Codex with:"
+            echo "   codex"
+            echo "4. The MCP server configuration is ready at: $CODEX_HOME/config.toml"
+            echo "5. Codex will automatically load the MCP server on startup"
+        fi
     fi
 
     echo
