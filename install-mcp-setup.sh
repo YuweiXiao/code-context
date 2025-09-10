@@ -58,8 +58,9 @@ install_ollama() {
     
     log_info "Installing Ollama..."
     if [[ "$OS" == "macos" ]]; then
+        log_error "Ollama is not installed on macOS"
         echo "Please install Ollama manually from https://ollama.com/download/mac"
-        echo "After installation, re-run this script."
+        echo "After installation, re-run this script with: ./install-mcp-setup.sh"
         exit 1
     else
         # Linux installation
@@ -126,12 +127,14 @@ check_docker() {
     if ! command -v docker >/dev/null 2>&1; then
         log_error "Docker is not installed. Please install Docker first."
         log_info "Visit: https://docs.docker.com/get-docker/"
+        echo "After installing Docker, re-run this script with: ./install-mcp-setup.sh"
         exit 1
     fi
     
     # Check if Docker daemon is running
     if ! docker info >/dev/null 2>&1; then
         log_error "Docker daemon is not running. Please start Docker first."
+        echo "After starting Docker, re-run this script with: ./install-mcp-setup.sh"
         exit 1
     fi
     
@@ -303,6 +306,31 @@ check_npm_installation() {
     fi
 }
 
+# Install MCP package
+install_mcp_package() {
+    log_info "Installing MCP package..."
+    
+    # Check if npm is available
+    if ! command -v npm >/dev/null 2>&1; then
+        log_warning "npm is not available. Skipping MCP package installation."
+        echo "To install the MCP package later, run: npm install -g @relyt/claude-context-mcp@latest"
+        return 1
+    fi
+    
+    # Install the MCP package globally
+    log_info "Installing @relyt/claude-context-mcp package..."
+    npm install -g @relyt/claude-context-mcp@latest
+    
+    if [ $? -eq 0 ]; then
+        log_success "✓ MCP package installed successfully"
+        return 0
+    else
+        log_error "✗ Failed to install MCP package"
+        echo "You can try installing it manually later with: npm install -g @relyt/claude-context-mcp@latest"
+        return 1
+    fi
+}
+
 # Check if Codex is installed
 check_codex_installation() {
     log_info "Checking Codex installation..."
@@ -371,6 +399,13 @@ main() {
     
     setup_postgres
     
+    # Install MCP package if npm is available
+    if check_npm_installation; then
+        install_mcp_package
+    else
+        log_warning "Skipping MCP package installation - npm not available"
+    fi
+    
     create_config_dir
     render_config
     
@@ -388,7 +423,8 @@ main() {
         echo "1. Start Codex with the following command:"
         echo "   codex"
         echo "2. The MCP server configuration has been added to: $CODEX_HOME/config.toml"
-        echo "3. Codex will automatically load the MCP server on startup"
+        echo "3. The MCP package (@relyt/claude-context-mcp) has been installed"
+        echo "4. Codex will automatically load the MCP server on startup"
     else
         if check_npm_installation; then
             echo "Next steps:"
@@ -398,7 +434,8 @@ main() {
             echo "2. After installing Codex, start it with:"
             echo "   codex"
             echo "3. The MCP server configuration is ready at: $CODEX_HOME/config.toml"
-            echo "4. Codex will automatically load the MCP server on startup"
+            echo "4. The MCP package (@relyt/claude-context-mcp) has been installed"
+            echo "5. Codex will automatically load the MCP server on startup"
         else
             echo "Next steps:"
             echo "1. Install Node.js and npm first:"
@@ -406,10 +443,12 @@ main() {
             echo "2. After installing Node.js/npm, install Codex:"
             echo "   npm install -g @openai/codex"
             echo "   Documentation: https://developers.openai.com/codex/cli/"
-            echo "3. Start Codex with:"
+            echo "3. Install the MCP package:"
+            echo "   npm install -g @relyt/claude-context-mcp@latest"
+            echo "4. Start Codex with:"
             echo "   codex"
-            echo "4. The MCP server configuration is ready at: $CODEX_HOME/config.toml"
-            echo "5. Codex will automatically load the MCP server on startup"
+            echo "5. The MCP server configuration is ready at: $CODEX_HOME/config.toml"
+            echo "6. Codex will automatically load the MCP server on startup"
         fi
     fi
 
@@ -422,6 +461,10 @@ main() {
     echo "  - Username: $POSTGRES_USER"
     echo "  - Password: $POSTGRES_PASSWORD"
     echo "  - Database: $POSTGRES_DB"
+    echo
+    echo "Note: If any installation steps failed due to missing dependencies,"
+    echo "install the required software and re-run this script:"
+    echo "  ./install-mcp-setup.sh"
     echo
 }
 
