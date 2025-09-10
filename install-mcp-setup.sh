@@ -17,6 +17,65 @@ POSTGRES_CONTAINER_NAME="code-context-postgres"
 POSTGRES_PORT="5433"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex/}"
 
+# Global variables for command line options
+# Check if POSTGRES_URL is already set as environment variable
+if [ -z "$POSTGRES_URL" ]; then
+    POSTGRES_URL=""
+fi
+USE_EXTERNAL_POSTGRES=false
+
+# Parse command line arguments and environment variables
+parse_arguments() {
+    # Check for environment variables first (for curl | bash compatibility)
+    if [ -n "$POSTGRES_URL" ]; then
+        log_info "Using PostgreSQL URL from environment variable: $POSTGRES_URL"
+        USE_EXTERNAL_POSTGRES=true
+    fi
+    
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --postgres-url)
+                POSTGRES_URL="$2"
+                USE_EXTERNAL_POSTGRES=true
+                shift 2
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Show help information
+show_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  --postgres-url URL    Specify PostgreSQL connection URL"
+    echo "                       Format: postgresql://user:password@host:port/database"
+    echo "                       When provided, skips Docker container installation"
+    echo "                       Note: psql is optional for connection testing"
+    echo "  --help, -h           Show this help message"
+    echo
+    echo "Environment Variables (for curl | bash compatibility):"
+    echo "  POSTGRES_URL         PostgreSQL connection URL (same as --postgres-url)"
+    echo
+    echo "Examples:"
+    echo "  $0                                    # Use Docker PostgreSQL container"
+    echo "  $0 --postgres-url postgresql://user:pass@localhost:5432/mydb"
+    echo "  POSTGRES_URL=postgresql://user:pass@localhost:5432/mydb $0"
+    echo "  curl -fsSL <script-url> | bash -s -- --postgres-url postgresql://user:pass@localhost:5432/mydb"
+    echo "  POSTGRES_URL=postgresql://user:pass@localhost:5432/mydb curl -fsSL <script-url> | bash"
+    echo
+}
+
 # Logging functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -122,6 +181,17 @@ install_embedding_model() {
     log_success "Embedding model '$OLLAMA_MODEL' installed successfully"
 }
 
+# Check if psql is available
+check_psql() {
+    if command -v psql >/dev/null 2>&1; then
+        log_success "psql is available for PostgreSQL connection testing"
+        return 0
+    else
+        log_warning "psql is not installed - PostgreSQL connection testing will be skipped"
+        return 1
+    fi
+}
+
 # Check if Docker is installed
 check_docker() {
     if ! command -v docker >/dev/null 2>&1; then
@@ -143,6 +213,12 @@ check_docker() {
 
 # Setup PostgreSQL with ParadeDB
 setup_postgres() {
+    if [ "$USE_EXTERNAL_POSTGRES" = true ]; then
+        log_info "Using external PostgreSQL connection: $POSTGRES_URL"
+        log_success "Skipping Docker container setup - using provided PostgreSQL URL"
+        return 0
+    fi
+    
     log_info "Setting up PostgreSQL with ParadeDB..."
     
     # Check if container already exists and is running
@@ -211,7 +287,14 @@ render_config() {
     log_info "Generating Codex config.toml..."
     
     local config_file="$CODEX_HOME/config.toml"
-    local postgres_connection_string="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB?sslmode=disable"
+    local postgres_connection_string
+    
+    if [ "$USE_EXTERNAL_POSTGRES" = true ]; then
+        postgres_connection_string="$POSTGRES_URL"
+    else
+        postgres_connection_string="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB?sslmode=disable"
+    fi
+    
     local mcp_server_name="claude-context-local"
     
     # Create new MCP server configuration
@@ -365,19 +448,37 @@ test_setup() {
     fi
     
     # Test PostgreSQL
-    if docker exec "$POSTGRES_CONTAINER_NAME" pg_isready >/dev/null 2>&1; then
-        log_success "✓ PostgreSQL is ready"
+    if [ "$USE_EXTERNAL_POSTGRES" = true ]; then
+        # Check if psql is available for testing external PostgreSQL connection
+        if command -v psql >/dev/null 2>&1; then
+            # Test external PostgreSQL connection using psql
+            if psql "$POSTGRES_URL" -c "SELECT 1;" >/dev/null 2>&1; then
+                log_success "✓ External PostgreSQL connection successful"
+            else
+                log_error "✗ External PostgreSQL connection failed"
+                log_info "Please verify your PostgreSQL URL: $POSTGRES_URL"
+                return 1
+            fi
+        else
+            log_warning "⚠ psql not available - skipping external PostgreSQL connection test"
+            log_info "External PostgreSQL URL configured: $POSTGRES_URL"
+        fi
     else
-        log_error "✗ PostgreSQL is not ready"
-        return 1
-    fi
-    
-    # Test database connection
-    if docker exec "$POSTGRES_CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;" >/dev/null 2>&1; then
-        log_success "✓ Database connection successful"
-    else
-        log_error "✗ Database connection failed"
-        return 1
+        # Test Docker PostgreSQL container
+        if docker exec "$POSTGRES_CONTAINER_NAME" pg_isready >/dev/null 2>&1; then
+            log_success "✓ PostgreSQL is ready"
+        else
+            log_error "✗ PostgreSQL is not ready"
+            return 1
+        fi
+        
+        # Test database connection
+        if docker exec "$POSTGRES_CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;" >/dev/null 2>&1; then
+            log_success "✓ Database connection successful"
+        else
+            log_error "✗ Database connection failed"
+            return 1
+        fi
     fi
     
     log_success "All tests passed! Setup is complete."
@@ -390,8 +491,15 @@ main() {
     echo "=================================================="
     echo
     
+    # Parse command line arguments first
+    parse_arguments "$@"
+    
     detect_os
-    check_docker
+    
+    # Only check Docker if we're not using external PostgreSQL
+    if [ "$USE_EXTERNAL_POSTGRES" = false ]; then
+        check_docker
+    fi
     
     install_ollama
     start_ollama
@@ -457,14 +565,24 @@ main() {
     echo
     echo "Services running:"
     echo "- Ollama: http://localhost:11434"
-    echo "- PostgreSQL: localhost:$POSTGRES_PORT"
-    echo "  - Username: $POSTGRES_USER"
-    echo "  - Password: $POSTGRES_PASSWORD"
-    echo "  - Database: $POSTGRES_DB"
+    if [ "$USE_EXTERNAL_POSTGRES" = true ]; then
+        echo "- PostgreSQL: External connection"
+        echo "  - Connection URL: $POSTGRES_URL"
+    else
+        echo "- PostgreSQL: localhost:$POSTGRES_PORT"
+        echo "  - Username: $POSTGRES_USER"
+        echo "  - Password: $POSTGRES_PASSWORD"
+        echo "  - Database: $POSTGRES_DB"
+    fi
     echo
     echo "Note: If any installation steps failed due to missing dependencies,"
     echo "install the required software and re-run this script:"
     echo "  ./install-mcp-setup.sh"
+    if [ "$USE_EXTERNAL_POSTGRES" = true ]; then
+        echo
+        echo "Note: For external PostgreSQL connections, 'psql' is optional but recommended"
+        echo "for connection testing. If not installed, connection testing will be skipped."
+    fi
     echo
 }
 
