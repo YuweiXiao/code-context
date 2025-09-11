@@ -295,7 +295,7 @@ render_config() {
         postgres_connection_string="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB?sslmode=disable"
     fi
     
-    local mcp_server_name="claude-context-local"
+    local mcp_server_name="claude-context"
     
     # Create new MCP server configuration
     local new_mcp_config="[mcp_servers.$mcp_server_name]

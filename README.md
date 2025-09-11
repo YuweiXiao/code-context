@@ -26,17 +26,17 @@ This script automates the installation and configuration of the Claude Context M
 
 ```bash
 # Download and run with default settings (Docker PostgreSQL)
-curl -fsSL https://raw.githubusercontent.com/your-repo/install-mcp-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YuweiXiao/code-context/refs/heads/main/install-mcp-setup.sh | bash
 
 # Download and run with external PostgreSQL
-curl -fsSL https://raw.githubusercontent.com/your-repo/install-mcp-setup.sh | bash -s -- --postgres-url postgresql://user:pass@host:port/database
+curl -fsSL https://raw.githubusercontent.com/YuweiXiao/code-context/refs/heads/main/install-mcp-setup.sh | bash -s -- --postgres-url postgresql://user:pass@host:port/database
 ```
 
 ### Method 2: Manual Download
 
 ```bash
 # Download the script
-curl -O https://raw.githubusercontent.com/your-repo/install-mcp-setup.sh
+curl -O https://raw.githubusercontent.com/YuweiXiao/code-context/refs/heads/main/install-mcp-setup.sh
 
 # Make it executable
 chmod +x install-mcp-setup.sh
@@ -80,7 +80,7 @@ For scenarios where you can't pass command-line arguments (like `curl | bash`), 
 ```bash
 # Using external PostgreSQL with environment variable
 export POSTGRES_URL="postgresql://user:pass@localhost:5432/mydb"
-curl -fsSL https://raw.githubusercontent.com/your-repo/install-mcp-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YuweiXiao/code-context/refs/heads/main/install-mcp-setup.sh | bash
 ```
 
 **Supported Environment Variables:**
