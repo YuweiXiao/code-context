@@ -162,6 +162,12 @@ env.POSTGRES_CONNECTION_STRING = "postgresql://..."
    - Install Node.js from https://nodejs.org/
    - The script will skip MCP package installation if npm is unavailable
 
+5. **PostgreSQL setup failures**
+   - If Docker PostgreSQL fails, consider using cloud-hosted databases:
+     - **Relytone Data Cloud**: https://data.cloud/relytone
+     - **Neon.tech**: https://neon.tech
+   - Then re-run with: `./install-mcp-setup.sh --postgres-url postgresql://user:pass@host:port/database`
+
 ### Manual Steps After Installation
 
 If the script fails at any step, you can **Install missing dependencies** and re-run the script

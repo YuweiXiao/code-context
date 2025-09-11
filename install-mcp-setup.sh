@@ -197,21 +197,35 @@ check_docker() {
     if ! command -v docker >/dev/null 2>&1; then
         log_error "Docker is not installed. Please install Docker first."
         log_info "Visit: https://docs.docker.com/get-docker/"
-        echo "After installing Docker, re-run this script with: ./install-mcp-setup.sh"
+        echo
+        log_info "Alternative: Use a cloud-hosted PostgreSQL database instead:"
+        echo "  • Relyt-ONE Data Cloud: https://data.cloud/relytone"
+        echo "  • Neon: https://neon.tech"
+        echo
+        echo "Then re-run this script with:"
+        echo "  ./install-mcp-setup.sh --postgres-url postgresql://user:pass@your-cloud-host:5432/database"
+        echo
         exit 1
     fi
     
     # Check if Docker daemon is running
     if ! docker info >/dev/null 2>&1; then
         log_error "Docker daemon is not running. Please start Docker first."
-        echo "After starting Docker, re-run this script with: ./install-mcp-setup.sh"
+        echo
+        log_info "Alternative: Use a cloud-hosted PostgreSQL database instead:"
+        echo "  • Relyt-ONE Data Cloud: https://data.cloud/relytone"
+        echo "  • Neon: https://neon.tech"
+        echo
+        echo "Then re-run this script with:"
+        echo "  ./install-mcp-setup.sh --postgres-url postgresql://user:pass@your-cloud-host:5432/database"
+        echo
         exit 1
     fi
     
     log_success "Docker is available"
 }
 
-# Setup PostgreSQL with ParadeDB
+# Setup PostgreSQL
 setup_postgres() {
     if [ "$USE_EXTERNAL_POSTGRES" = true ]; then
         log_info "Using external PostgreSQL connection: $POSTGRES_URL"
@@ -219,7 +233,7 @@ setup_postgres() {
         return 0
     fi
     
-    log_info "Setting up PostgreSQL with ParadeDB..."
+    log_info "Setting up PostgreSQL..."
     
     # Check if container already exists and is running
     if docker ps | grep -q "$POSTGRES_CONTAINER_NAME"; then
@@ -248,7 +262,7 @@ setup_postgres() {
         POSTGRES_PORT="$available_port"
     fi
     
-    log_info "Creating new PostgreSQL container with ParadeDB on port $POSTGRES_PORT..."
+    log_info "Creating new PostgreSQL container on port $POSTGRES_PORT..."
     docker run -d \
         --name "$POSTGRES_CONTAINER_NAME" \
         -e POSTGRES_USER="$POSTGRES_USER" \
@@ -264,6 +278,14 @@ setup_postgres() {
     while ! docker exec "$POSTGRES_CONTAINER_NAME" pg_isready >/dev/null 2>&1; do
         if [ $attempt -ge $max_attempts ]; then
             log_error "PostgreSQL failed to start after $max_attempts attempts"
+            echo
+            log_info "Alternative: Use a cloud-hosted PostgreSQL database instead:"
+            echo "  • Relyt-ONE Data Cloud: https://data.cloud/relytone"
+            echo "  • Neon: https://neon.tech"
+            echo
+            echo "Then re-run this script with:"
+            echo "  ./install-mcp-setup.sh --postgres-url postgresql://user:pass@your-cloud-host:5432/database"
+            echo
             exit 1
         fi
         log_info "Waiting for PostgreSQL to be ready... (attempt $attempt/$max_attempts)"
@@ -271,7 +293,7 @@ setup_postgres() {
         ((attempt++))
     done
     
-    log_success "PostgreSQL with ParadeDB is running"
+    log_success "PostgreSQL with is running"
 }
 
 # Create config directory if it doesn't exist
@@ -457,6 +479,11 @@ test_setup() {
             else
                 log_error "✗ External PostgreSQL connection failed"
                 log_info "Please verify your PostgreSQL URL: $POSTGRES_URL"
+                echo
+                log_info "Need a PostgreSQL database? Try these cloud providers:"
+                echo "  • Relyt-ONE Data Cloud: https://data.cloud/relytone"
+                echo "  • Neon: https://neon.tech"
+                echo
                 return 1
             fi
         else
