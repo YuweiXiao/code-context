@@ -330,6 +330,7 @@ env.OLLAMA_HOST = \"http://127.0.0.1:11434\"
 env.EMBEDDING_MODEL = \"$OLLAMA_MODEL\"
 env.VECTOR_DATABASE_PROVIDER = \"postgres\"
 env.HYBRID_MODE = \"false\"
+env.MCP_LOG_FILE = \"true\"
 env.POSTGRES_CONNECTION_STRING = \"$postgres_connection_string\""
     
     if [ -f "$config_file" ]; then
